@@ -1,0 +1,26 @@
+gateway:
+  device_id: "rpi-gateway-001"
+  org_id: "acme"
+  site_id: "blr-plant-1"
+
+local_broker:
+  host: "localhost"
+  port: 1883
+  keepalive: 60
+
+upstream_broker:
+  host: "mqtt.example.com"
+  port: 1883
+  username: ""
+  password: ""
+  keepalive: 60
+
+buffer:
+  max_records: 1000
+  file_path: "/tmp/gateway_buffer.json"
+
+health:
+  port: 8080
+
+logging:
+  level: "INFO"

@@ -1,0 +1,277 @@
+{
+  "type": "excalidraw",
+  "version": 2,
+  "source": "https://excalidraw.com",
+  "elements": [
+    {
+      "id": "esp32-1",
+      "type": "rectangle",
+      "x": 100,
+      "y": 100,
+      "width": 120,
+      "height": 80,
+      "strokeColor": "#000000",
+      "backgroundColor": "#ffffff",
+      "fill": "#ffffff",
+      "text": "ESP32 Device",
+      "fontSize": 14
+    },
+    {
+      "id": "sensors-1",
+      "type": "rectangle",
+      "x": 250,
+      "y": 100,
+      "width": 100,
+      "height": 60,
+      "strokeColor": "#000000",
+      "backgroundColor": "#fff3cd",
+      "fill": "#fff3cd",
+      "text": "DHT22\nMPU6050\nADC",
+      "fontSize": 12
+    },
+    {
+      "id": "mqtt-client-1",
+      "type": "rectangle",
+      "x": 400,
+      "y": 100,
+      "width": 100,
+      "height": 60,
+      "strokeColor": "#000000",
+      "backgroundColor": "#d4edda",
+      "fill": "#d4edda",
+      "text": "MQTT Client\nTLS",
+      "fontSize": 12
+    },
+    {
+      "id": "buffer-1",
+      "type": "rectangle",
+      "x": 400,
+      "y": 180,
+      "width": 100,
+      "height": 50,
+      "strokeColor": "#000000",
+      "backgroundColor": "#f8d7da",
+      "fill": "#f8d7da",
+      "text": "Local Buffer\n500 records",
+      "fontSize": 12
+    },
+    {
+      "id": "mosquitto-1",
+      "type": "rectangle",
+      "x": 600,
+      "y": 100,
+      "width": 100,
+      "height": 80,
+      "strokeColor": "#000000",
+      "backgroundColor": "#cce5ff",
+      "fill": "#cce5ff",
+      "text": "Mosquitto\nMQTT Broker",
+      "fontSize": 12
+    },
+    {
+      "id": "backend-1",
+      "type": "rectangle",
+      "x": 600,
+      "y": 220,
+      "width": 120,
+      "height": 80,
+      "strokeColor": "#000000",
+      "backgroundColor": "#d4edda",
+      "fill": "#d4edda",
+      "text": "Backend API\nFastAPI",
+      "fontSize": 14
+    },
+    {
+      "id": "subscriber-1",
+      "type": "rectangle",
+      "x": 760,
+      "y": 220,
+      "width": 100,
+      "height": 50,
+      "strokeColor": "#000000",
+      "backgroundColor": "#d4edda",
+      "fill": "#d4edda",
+      "text": "MQTT\nSubscriber",
+      "fontSize": 12
+    },
+    {
+      "id": "database-1",
+      "type": "rectangle",
+      "x": 760,
+      "y": 290,
+      "width": 100,
+      "height": 50,
+      "strokeColor": "#000000",
+      "backgroundColor": "#d4edda",
+      "fill": "#d4edda",
+      "text": "SQLite DB",
+      "fontSize": 12
+    },
+    {
+      "id": "prometheus-1",
+      "type": "rectangle",
+      "x": 600,
+      "y": 350,
+      "width": 100,
+      "height": 60,
+      "strokeColor": "#000000",
+      "backgroundColor": "#e2e3e5",
+      "fill": "#e2e3e5",
+      "text": "Prometheus",
+      "fontSize": 12
+    },
+    {
+      "id": "grafana-1",
+      "type": "rectangle",
+      "x": 760,
+      "y": 350,
+      "width": 100,
+      "height": 60,
+      "strokeColor": "#000000",
+      "backgroundColor": "#e2e3e5",
+      "fill": "#e2e3e5",
+      "text": "Grafana",
+      "fontSize": 12
+    },
+    {
+      "id": "dashboard-1",
+      "type": "rectangle",
+      "x": 600,
+      "y": 450,
+      "width": 120,
+      "height": 80,
+      "strokeColor": "#000000",
+      "backgroundColor": "#d1ecf1",
+      "fill": "#d1ecf1",
+      "text": "React Dashboard\nReal-time SSE",
+      "fontSize": 12
+    },
+    {
+      "id": "simulator-1",
+      "type": "rectangle",
+      "x": 100,
+      "y": 350,
+      "width": 100,
+      "height": 60,
+      "strokeColor": "#000000",
+      "backgroundColor": "#fff3cd",
+      "fill": "#fff3cd",
+      "text": "Simulator\nTest Tool",
+      "fontSize": 12
+    },
+    {
+      "id": "gateway-1",
+      "type": "rectangle",
+      "x": 250,
+      "y": 350,
+      "width": 100,
+      "height": 60,
+      "strokeColor": "#000000",
+      "backgroundColor": "#fff3cd",
+      "fill": "#fff3cd",
+      "text": "RPi Gateway",
+      "fontSize": 12
+    },
+    {
+      "id": "crewai-1",
+      "type": "rectangle",
+      "x": 100,
+      "y": 450,
+      "width": 100,
+      "height": 60,
+      "strokeColor": "#000000",
+      "backgroundColor": "#e2e3e5",
+      "fill": "#e2e3e5",
+      "text": "CrewAI\nTask Planning",
+      "fontSize": 12
+    },
+    {
+      "id": "arrow-1",
+      "type": "arrow",
+      "x": 220,
+      "y": 140,
+      "points": [[0, 0], [30, 0]],
+      "strokeColor": "#000000"
+    },
+    {
+      "id": "arrow-2",
+      "type": "arrow",
+      "x": 350,
+      "y": 130,
+      "points": [[0, 0], [50, 0]],
+      "strokeColor": "#000000"
+    },
+    {
+      "id": "arrow-3",
+      "type": "arrow",
+      "x": 500,
+      "y": 130,
+      "points": [[0, 0], [100, 0]],
+      "strokeColor": "#000000"
+    },
+    {
+      "id": "arrow-4",
+      "type": "arrow",
+      "x": 440,
+      "y": 170,
+      "points": [[0, 0], [0, 10]],
+      "strokeColor": "#000000"
+    },
+    {
+      "id": "arrow-5",
+      "type": "arrow",
+      "x": 700,
+      "y": 260,
+      "points": [[0, 0], [60, 0]],
+      "strokeColor": "#000000"
+    },
+    {
+      "id": "arrow-6",
+      "type": "arrow",
+      "x": 720,
+      "y": 270,
+      "points": [[0, 0], [40, 20]],
+      "strokeColor": "#000000"
+    },
+    {
+      "id": "label-1",
+      "type": "text",
+      "x": 100,
+      "y": 40,
+      "text": "IoT Forge - Complete Architecture",
+      "fontSize": 20,
+      "strokeColor": "#000000"
+    },
+    {
+      "id": "label-2",
+      "type": "text",
+      "x": 100,
+      "y": 70,
+      "text": "Edge Layer (ESP32)",
+      "fontSize": 12,
+      "strokeColor": "#666666"
+    },
+    {
+      "id": "label-3",
+      "type": "text",
+      "x": 600,
+      "y": 70,
+      "text": "Cloud/Server Layer",
+      "fontSize": 12,
+      "strokeColor": "#666666"
+    },
+    {
+      "id": "label-4",
+      "type": "text",
+      "x": 100,
+      "y": 320,
+      "text": "Testing & Tools",
+      "fontSize": 12,
+      "strokeColor": "#666666"
+    }
+  ],
+  "appState": {
+    "theme": "light",
+    "viewBackgroundColor": "#ffffff"
+  }
+}

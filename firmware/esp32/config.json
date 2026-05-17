@@ -1,0 +1,58 @@
+{
+  "org_id": "acme",
+  "site_id": "blr-plant-1",
+  "device_id": "",
+  "fw_version": "1.0.0",
+  "interval_ms": 5000,
+  "heartbeat_s": 60,
+
+  "wifi": {
+    "ssid": "YOUR_WIFI_SSID",
+    "password": "YOUR_WIFI_PASSWORD"
+  },
+
+  "mqtt": {
+    "host": "localhost",
+    "port": 1883,
+    "username": "",
+    "password": "",
+    "keepalive": 60,
+    "ssl": null
+  },
+
+  "sensors": [
+    {
+      "driver": "dht22",
+      "sensor_type": "temperature",
+      "unit": "celsius",
+      "pin_config": { "data_pin": 4 }
+    },
+    {
+      "driver": "dht22",
+      "sensor_type": "humidity",
+      "unit": "percent",
+      "pin_config": { "data_pin": 4 }
+    },
+    {
+      "driver": "mpu6050",
+      "sensor_type": "vibration",
+      "unit": "g",
+      "pin_config": { "sda_pin": 21, "scl_pin": 22 },
+      "options": { "samples": 10, "range_g": 2 }
+    },
+    {
+      "driver": "adc_generic",
+      "sensor_type": "current",
+      "unit": "amps",
+      "pin_config": { "adc_pin": 34 },
+      "options": {
+        "mode": "current",
+        "sensor_name": "motor_current",
+        "scale": 30.0,
+        "offset": -15.0,
+        "unit": "amps",
+        "samples": 32
+      }
+    }
+  ]
+}
