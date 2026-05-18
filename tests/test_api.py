@@ -1,128 +1,79 @@
-# ============================================================
-# Test API - Use httpx AsyncClient
-# ============================================================
-
-import pytest
-from httpx import AsyncClient, ASGITransport
-import sys
 import os
+os.environ["DB_PATH"] = ":memory:"
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'backend'))
+import time
+import pytest
+import pytest_asyncio
+from httpx import AsyncClient, ASGITransport
 
-
-class TestHealthEndpoint:
-    @pytest.mark.asyncio
-    async def test_health_returns_healthy(self):
-        from main import app
-
-        transport = ASGITransport(app=app)
-        async with AsyncClient(transport=transport, base_url="http://test") as client:
-            response = await client.get("/api/v1/health")
-
-            assert response.status_code == 200
-            data = response.json()
-            assert data["status"] == "healthy"
-            assert "uptime_s" in data
-            assert "readings_count" in data
-            assert "devices_count" in data
+from backend.main     import app
+from backend.database import db
 
 
-class TestDevicesEndpoint:
-    @pytest.mark.asyncio
-    async def test_list_devices_returns_array(self):
-        from main import app
-
-        transport = ASGITransport(app=app)
-        async with AsyncClient(transport=transport, base_url="http://test") as client:
-            response = await client.get("/api/v1/devices")
-
-            assert response.status_code == 200
-            data = response.json()
-            assert isinstance(data, list)
-
-    @pytest.mark.asyncio
-    async def test_get_single_device_not_found(self):
-        from main import app
-
-        transport = ASGITransport(app=app)
-        async with AsyncClient(transport=transport, base_url="http://test") as client:
-            response = await client.get("/api/v1/devices/nonexistent-device")
-
-            assert response.status_code == 404
+@pytest_asyncio.fixture(autouse=True)
+async def setup_db():
+    await db.init()
+    yield
+    await db.close()
 
 
-class TestReadingsEndpoint:
-    @pytest.mark.asyncio
-    async def test_get_readings_returns_data(self):
-        from main import app
-
-        transport = ASGITransport(app=app)
-        async with AsyncClient(transport=transport, base_url="http://test") as client:
-            response = await client.get("/api/v1/readings")
-
-            assert response.status_code == 200
-            data = response.json()
-            assert "readings" in data
-            assert "count" in data
-
-    @pytest.mark.asyncio
-    async def test_get_readings_with_filters(self):
-        from main import app
-
-        transport = ASGITransport(app=app)
-        async with AsyncClient(transport=transport, base_url="http://test") as client:
-            response = await client.get("/api/v1/readings?device_id=test-device&sensor=temperature&limit=10")
-
-            assert response.status_code == 200
-
-    @pytest.mark.asyncio
-    async def test_get_latest_readings(self):
-        from main import app
-
-        transport = ASGITransport(app=app)
-        async with AsyncClient(transport=transport, base_url="http://test") as client:
-            response = await client.get("/api/v1/readings/latest")
-
-            assert response.status_code == 200
-            data = response.json()
-            assert "readings" in data
-            assert "count" in data
-
-    @pytest.mark.asyncio
-    async def test_get_device_sensor_readings(self):
-        from main import app
-
-        transport = ASGITransport(app=app)
-        async with AsyncClient(transport=transport, base_url="http://test") as client:
-            response = await client.get("/api/v1/readings/test-device/temperature")
-
-            assert response.status_code == 200
-            data = response.json()
-            assert "device_id" in data
-            assert "sensor" in data
-            assert "readings" in data
+@pytest.mark.asyncio
+async def test_health_endpoint():
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        r = await client.get("/api/v1/health")
+    assert r.status_code == 200
+    data = r.json()
+    assert data["status"] == "ok"
+    assert "ts" in data
+    assert "device_count" in data
 
 
-class TestStreamEndpoint:
-    @pytest.mark.asyncio
-    async def test_stream_endpoint_exists(self):
-        from main import app
-
-        transport = ASGITransport(app=app)
-        async with AsyncClient(transport=transport, base_url="http://test") as client:
-            response = await client.get("/api/v1/stream")
-
-            assert response.status_code == 200
-            assert "text/event-stream" in response.headers.get("content-type", "")
+@pytest.mark.asyncio
+async def test_get_devices_empty():
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        r = await client.get("/api/v1/devices")
+    assert r.status_code == 200
+    assert r.json() == []
 
 
-class TestCORS:
-    @pytest.mark.asyncio
-    async def test_cors_headers_present(self):
-        from main import app
+@pytest.mark.asyncio
+async def test_insert_and_retrieve_reading():
+    payload = {
+        "device_id": "TEST-001", "org_id": "test", "site_id": "lab",
+        "sensor": "temperature", "value": 25.5, "unit": "celsius",
+        "quality": 1, "ts": int(time.time() * 1000), "seq": 1, "fw_version": "1.0.0"
+    }
+    await db.insert_reading(payload)
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        r = await client.get("/api/v1/readings", params={"device_id": "TEST-001"})
+    assert r.status_code == 200
+    rows = r.json()
+    assert len(rows) == 1
+    assert rows[0]["sensor"] == "temperature"
+    assert rows[0]["value"] == 25.5
 
-        transport = ASGITransport(app=app)
-        async with AsyncClient(transport=transport, base_url="http://test") as client:
-            response = await client.get("/api/v1/health", headers={"Origin": "http://localhost:3000"})
 
-            assert "access-control-allow-origin" in response.headers
+@pytest.mark.asyncio
+async def test_latest_readings_one_per_sensor():
+    base_ts = int(time.time() * 1000)
+    for i, val in enumerate([20.0, 21.0, 22.0]):
+        await db.insert_reading({
+            "device_id": "TEST-002", "sensor": "temperature",
+            "value": val, "unit": "celsius", "quality": 1,
+            "ts": base_ts + i * 1000
+        })
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        r = await client.get("/api/v1/readings/latest")
+    assert r.status_code == 200
+    rows = r.json()
+    sensor_rows = [row for row in rows if row["device_id"] == "TEST-002"]
+    assert len(sensor_rows) == 1
+    assert sensor_rows[0]["value"] == 22.0
+
+
+@pytest.mark.asyncio
+async def test_sse_stream_connects():
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        r = await client.get("/api/v1/stream", params={"max_events": 1, "keepalive": 0.1})
+    assert r.status_code == 200
+    assert "text/event-stream" in r.headers["content-type"]

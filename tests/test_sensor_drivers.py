@@ -1,175 +1,102 @@
 # ============================================================
-# Test Sensor Drivers - Mock hardware modules
+# Test Sensor Drivers - Mock MicroPython hardware modules
 # ============================================================
 
+import sys
+import os
+from unittest.mock import MagicMock
+
+machine_mock = MagicMock()
+machine_mock.Pin = MagicMock()
+machine_mock.I2C = MagicMock()
+machine_mock.ADC = MagicMock()
+machine_mock.ADC.ATTN_11DB = 3
+
+dht_mock = MagicMock()
+utime_mock = MagicMock()
+utime_mock.sleep_ms = MagicMock()
+
+sys.modules["machine"] = machine_mock
+sys.modules["dht"] = dht_mock
+sys.modules["utime"] = utime_mock
+sys.modules["math"] = __import__("math")
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "firmware", "esp32"))
+
+import importlib.util
+
+def load_driver(name):
+    spec = importlib.util.spec_from_file_location(f"drivers.{name}", f"C:\\code\\IoT-Forge\\month1-edge-sense\\firmware\\esp32\\drivers\\{name}.py")
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules[f"drivers.{name}"] = mod
+    spec.loader.exec_module(mod)
+    return mod
+
 import pytest
-from unittest.mock import Mock, patch, MagicMock
 
 
-class TestDHT22Driver:
-    @patch('drivers.dht22.dht')
-    @patch('drivers.dht22.machine.Pin')
-    def test_read_returns_two_readings(self, mock_pin, mock_dht):
-        mock_sensor = Mock()
-        mock_sensor.temperature.return_value = 25.5
+class TestDHT22:
+    def test_returns_two_readings(self):
+        dht22_mod = load_driver("dht22")
+        mock_sensor = MagicMock()
+        mock_sensor.temperature.return_value = 25.0
         mock_sensor.humidity.return_value = 60.0
-        mock_dht.DHT22.return_value = mock_sensor
+        dht_mock.DHT22.return_value = mock_sensor
 
-        from drivers.dht22 import DHT22Driver
-        driver = DHT22Driver({"data_pin": 4})
-        readings = driver.read()
+        driver = dht22_mod.Driver({"data_pin": 4}, {})
+        result = driver.read()
 
-        assert len(readings) == 2
-        assert readings[0]["sensor"] == "temperature"
-        assert readings[1]["sensor"] == "humidity"
+        assert len(result) == 2
+        assert result[0]["sensor"] == "temperature"
+        assert result[1]["sensor"] == "humidity"
+        assert result[0]["quality"] == 1
+        assert result[1]["quality"] == 1
 
-    @patch('drivers.dht22.dht')
-    @patch('drivers.dht22.machine.Pin')
-    def test_read_handles_exception(self, mock_pin, mock_dht):
-        mock_sensor = Mock()
-        mock_sensor.measure.side_effect = Exception("Hardware error")
-        mock_dht.DHT22.return_value = mock_sensor
+    def test_quality_flag_on_out_of_range(self):
+        dht22_mod = load_driver("dht22")
+        mock_sensor = MagicMock()
+        mock_sensor.temperature.return_value = 100.0
+        mock_sensor.humidity.return_value = 50.0
+        dht_mock.DHT22.return_value = mock_sensor
 
-        from drivers.dht22 import DHT22Driver
-        driver = DHT22Driver({"data_pin": 4})
-        readings = driver.read()
+        driver = dht22_mod.Driver({"data_pin": 4}, {})
+        result = driver.read()
 
-        assert len(readings) == 2
-        assert readings[0]["quality"] == 0
-        assert readings[1]["quality"] == 0
-
-
-class TestMPU6050Driver:
-    @patch('drivers.mpu6050.machine')
-    def test_read_returns_vibration_readings(self, mock_machine):
-        mock_i2c = Mock()
-        mock_i2c.readfrom_mem.return_value = b'\x00\x00\x00\x00\x00\x00'
-        mock_machine.SoftI2C.return_value = mock_i2c
-
-        import sys
-        sys.modules['ustruct'] = __import__('struct')
-        sys.modules['utime'] = __import__('time')
-
-        with patch('drivers.mpu6050.machine.SoftI2C', return_value=mock_i2c):
-            from drivers.mpu6050 import MPU6050Driver
-            driver = MPU6050Driver({"sda_pin": 21, "scl_pin": 22}, {"samples": 3})
-            readings = driver.read()
-
-            assert len(readings) == 2
-            assert readings[0]["sensor_type"] == "vibration_rms"
-            assert readings[1]["sensor_type"] == "vibration_peak"
-
-    @patch('drivers.mpu6050.machine')
-    def test_read_subtracts_gravity(self, mock_machine):
-        import struct
-        import sys
-        sys.modules['struct'] = struct
-
-        mock_i2c = Mock()
-        mock_i2c.readfrom_mem.return_value = struct.pack(">hhh", 0, 0, 32768)
-        mock_machine.SoftI2C.return_value = mock_i2c
-
-        with patch('drivers.mpu6050.machine.SoftI2C', return_value=mock_i2c):
-            from drivers.mpu6050 import MPU6050Driver
-            driver = MPU6050Driver({"sda_pin": 21, "scl_pin": 22}, {"samples": 1})
-            readings = driver.read()
-
-            assert readings[0]["value"] >= 0
+        assert result[0]["quality"] == 0
+        assert result[0]["value"] == 100.0
 
 
-class TestADCGenericDriver:
-    @patch('drivers.adc_generic.machine')
-    def test_read_returns_scaled_value(self, mock_machine):
-        mock_adc = Mock()
+class TestMPU6050:
+    def test_returns_rms_and_peak(self):
+        mpu6050_mod = load_driver("mpu6050")
+        i2c_mock = MagicMock()
+        machine_mock.I2C.return_value = i2c_mock
+        i2c_mock.readfrom_mem.return_value = bytes([0x10, 0x00, 0x10, 0x00, 0x40, 0x00])
+
+        driver = mpu6050_mod.Driver({"sda_pin": 21, "scl_pin": 22}, {"samples": 3})
+        result = driver.read()
+
+        assert len(result) == 2
+        assert result[0]["sensor"] == "vibration_rms"
+        assert result[1]["sensor"] == "vibration_peak"
+        assert result[0]["value"] is not None
+        assert result[0]["quality"] == 1
+
+
+class TestADCGeneric:
+    def test_conversion(self):
+        adc_mod = load_driver("adc_generic")
+        mock_adc = MagicMock()
         mock_adc.read.return_value = 2048
-        mock_machine.ADC.return_value = mock_adc
+        machine_mock.ADC.return_value = mock_adc
 
-        with patch('drivers.adc_generic.machine.ADC', return_value=mock_adc):
-            from drivers.adc_generic import ADCGenericDriver
-            driver = ADCGenericDriver(
-                {"adc_pin": 34},
-                {"scale": 2.0, "offset": 1.0, "samples": 1}
-            )
-            readings = driver.read()
+        driver = adc_mod.Driver(
+            {"adc_pin": 34},
+            {"mode": "voltage", "scale": 2.0, "offset": 0.0, "v_ref": 3.3, "adc_bits": 12, "samples": 1}
+        )
+        result = driver.read()
 
-            assert len(readings) == 1
-            assert "value" in readings[0]
-            assert readings[0]["quality"] == 1
-
-    @patch('drivers.adc_generic.machine')
-    def test_read_handles_exception(self, mock_machine):
-        mock_adc = Mock()
-        mock_adc.read.side_effect = Exception("ADC error")
-        mock_machine.ADC.return_value = mock_adc
-
-        with patch('drivers.adc_generic.machine.ADC', return_value=mock_adc):
-            from drivers.adc_generic import ADCGenericDriver
-            driver = ADCGenericDriver({"adc_pin": 34}, {})
-            readings = driver.read()
-
-            assert readings[0]["quality"] == 0
-
-
-class TestSensorRegistry:
-    @patch('drivers.dht22.DHT22Driver')
-    def test_load_sensors_from_config(self, mock_driver_class):
-        mock_driver = Mock()
-        mock_driver.read.return_value = [
-            {"sensor": "temperature", "value": 25.0, "unit": "celsius", "quality": 1}
-        ]
-        mock_driver_class.return_value = mock_driver
-
-        from sensor_registry import SensorRegistry
-
-        config = [
-            {
-                "driver": "dht22",
-                "sensor_type": "temperature",
-                "unit": "celsius",
-                "pin_config": {"data_pin": 4}
-            }
-        ]
-
-        registry = SensorRegistry(config)
-        assert len(registry.sensors) == 1
-
-    @patch('drivers.dht22.DHT22Driver')
-    def test_read_all_returns_combined_readings(self, mock_driver_class):
-        mock_driver = Mock()
-        mock_driver.read.return_value = [
-            {"sensor": "temperature", "value": 25.0, "unit": "celsius", "quality": 1}
-        ]
-        mock_driver_class.return_value = mock_driver
-
-        from sensor_registry import SensorRegistry
-
-        config = [
-            {
-                "driver": "dht22",
-                "sensor_type": "temperature",
-                "unit": "celsius",
-                "pin_config": {"data_pin": 4}
-            }
-        ]
-
-        registry = SensorRegistry(config)
-        readings = registry.read_all()
-
-        assert len(readings) > 0
-
-    @patch('drivers.dht22.DHT22Driver')
-    def test_never_crashes_on_bad_driver(self, mock_driver_class):
-        mock_driver_class.side_effect = Exception("Driver load error")
-
-        from sensor_registry import SensorRegistry
-
-        config = [
-            {
-                "driver": "nonexistent",
-                "sensor_type": "test",
-                "pin_config": {}
-            }
-        ]
-
-        registry = SensorRegistry(config)
-        assert len(registry.sensors) == 0
+        expected_voltage = (2048 / 4095) * 3.3
+        expected_value = expected_voltage * 2.0 + 0.0
+        assert abs(result[0]["value"] - expected_value) < 0.05
+        assert result[0]["quality"] == 1

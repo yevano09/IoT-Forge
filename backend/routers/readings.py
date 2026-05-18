@@ -1,54 +1,20 @@
-# ============================================================
-# Readings Router - GET /api/v1/readings, GET /api/v1/readings/latest
-# ============================================================
-
+from fastapi import APIRouter, Query
 from typing import Optional
-from fastapi import APIRouter, Depends, Query
+from backend.database import db
 
-router = APIRouter(prefix="/api/v1/readings", tags=["readings"])
-
-
-def get_database():
-    from main import get_db
-    return get_db()
+router = APIRouter()
 
 
-@router.get("")
+@router.get("/readings")
 async def get_readings(
-    device_id: Optional[str] = Query(None),
-    sensor: Optional[str] = Query(None),
-    limit: int = Query(100, ge=1, le=1000),
-    offset: int = Query(0, ge=0),
-    db=Depends(get_database)
+    device_id: Optional[str] = Query(None, description="Filter by device ID"),
+    sensor:    Optional[str] = Query(None, description="Filter by sensor type"),
+    limit:     int           = Query(200, ge=1, le=5000),
+    since_ts:  Optional[int] = Query(None, description="Only readings >= this Unix ms timestamp"),
 ):
-    readings = await db.get_readings(
-        device_id=device_id,
-        sensor=sensor,
-        limit=limit,
-        offset=offset
-    )
-    return {"readings": readings, "count": len(readings)}
+    return await db.get_readings(device_id=device_id, sensor=sensor, limit=limit, since_ts=since_ts)
 
 
-@router.get("/latest")
-async def get_latest_readings(
-    device_id: Optional[str] = Query(None),
-    db=Depends(get_database)
-):
-    readings = await db.get_latest_readings(device_id=device_id)
-    return {"readings": readings, "count": len(readings)}
-
-
-@router.get("/{device_id}/{sensor}")
-async def get_sensor_reading(
-    device_id: str,
-    sensor: str,
-    limit: int = Query(50, ge=1, le=500),
-    db=Depends(get_database)
-):
-    readings = await db.get_readings(
-        device_id=device_id,
-        sensor=sensor,
-        limit=limit
-    )
-    return {"device_id": device_id, "sensor": sensor, "readings": readings}
+@router.get("/readings/latest")
+async def latest_readings():
+    return await db.get_latest_readings()

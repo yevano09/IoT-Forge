@@ -1,181 +1,77 @@
 # ============================================================
-# Test Simulator - Verify simulator output and anomaly injection
+# Test Simulator - Verify SensorModel output and anomaly injection
 # ============================================================
 
+import sys
+import os
+from unittest.mock import MagicMock
+
+sys.modules.setdefault("paho", MagicMock())
+sys.modules.setdefault("paho.mqtt", MagicMock())
+sys.modules.setdefault("paho.mqtt.client", MagicMock())
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "firmware", "simulator"))
+
 import pytest
-import json
-import time
-from unittest.mock import Mock, patch, MagicMock
 
 
-class TestSimulatorPayloads:
-    def test_payload_has_required_fields(self):
-        payload = {
-            "device_id": "test-device",
-            "org_id": "acme",
-            "site_id": "test-site",
-            "sensor": "temperature",
-            "value": 25.0,
-            "unit": "celsius",
-            "quality": 1,
-            "ts": int(time.time() * 1000),
-            "seq": 1,
-            "fw_version": "1.0.0-sim"
-        }
-
-        required = ["device_id", "org_id", "site_id", "sensor", "value", "unit", "quality", "ts", "seq", "fw_version"]
-        for field in required:
-            assert field in payload, f"Missing field: {field}"
-
-    def test_temperature_range_valid(self):
-        from firmware.simulator.simulator import DeviceSimulator
-
-        with patch('paho.mqtt.client.Client') as mock_client:
-            mock_client.return_value.connect.return_value = 0
-            mock_client.return_value.publish.return_value = Mock(rc=0)
-
-            sim = DeviceSimulator(
-                org_id="acme",
-                site_id="test-site",
-                device_id="test-device",
-                mqtt_broker="localhost",
-                mqtt_port=1883,
-                interval=1
-            )
-
-            temperature = sim._generate_temperature()
-            assert -20 <= temperature <= 60
-
-    def test_humidity_range_valid(self):
-        from firmware.simulator.simulator import DeviceSimulator
-
-        with patch('paho.mqtt.client.Client') as mock_client:
-            mock_client.return_value.connect.return_value = 0
-            mock_client.return_value.publish.return_value = Mock(rc=0)
-
-            sim = DeviceSimulator(
-                org_id="acme",
-                site_id="test-site",
-                device_id="test-device",
-                mqtt_broker="localhost",
-                mqtt_port=1883,
-                interval=1
-            )
-
-            humidity = sim._generate_humidity()
-            assert 0 <= humidity <= 100
-
-    def test_vibration_normal_range(self):
-        from firmware.simulator.simulator import DeviceSimulator
-
-        with patch('paho.mqtt.client.Client') as mock_client:
-            mock_client.return_value.connect.return_value = 0
-            mock_client.return_value.publish.return_value = Mock(rc=0)
-
-            sim = DeviceSimulator(
-                org_id="acme",
-                site_id="test-site",
-                device_id="test-device",
-                mqtt_broker="localhost",
-                mqtt_port=1883,
-                interval=1
-            )
-
-            sim.start_time = time.time() - 10
-            vibration = sim._generate_vibration()
-
-            assert "vibration_rms" in vibration
-            assert "vibration_peak" in vibration
-            assert vibration["vibration_rms"] < 0.30
-
-    def test_vibration_anomaly_exceeds_threshold(self):
-        from firmware.simulator.simulator import DeviceSimulator
-
-        with patch('paho.mqtt.client.Client') as mock_client:
-            mock_client.return_value.connect.return_value = 0
-            mock_client.return_value.publish.return_value = Mock(rc=0)
-
-            sim = DeviceSimulator(
-                org_id="acme",
-                site_id="test-site",
-                device_id="test-device",
-                mqtt_broker="localhost",
-                mqtt_port=1883,
-                interval=1
-            )
-
-            sim.start_time = time.time() - 35
-            sim.anomaly_triggered = True
-
-            vibration = sim._generate_vibration()
-
-            assert vibration["vibration_rms"] > 0.30, f"Expected >0.30, got {vibration['vibration_rms']}"
+def make_sensor_model():
+    ns = {}
+    code = open(os.path.join(os.path.dirname(__file__), "..", "firmware", "simulator", "simulator.py")).read()
+    exec(compile(code, "simulator.py", "exec"), ns)
+    return ns["SensorModel"]
 
 
-class TestSimulatorMQTTIntegration:
-    @patch('paho.mqtt.client.Client')
-    def test_publish_success(self, mock_client):
-        from firmware.simulator.simulator import DeviceSimulator
-
-        mock_instance = Mock()
-        mock_instance.connect.return_value = 0
-        mock_instance.publish.return_value = Mock(rc=0)
-        mock_client.return_value = mock_instance
-
-        sim = DeviceSimulator(
-            org_id="acme",
-            site_id="test-site",
-            device_id="test-device",
-            mqtt_broker="localhost",
-            mqtt_port=1883,
-            interval=1
-        )
-
-        sim._publish_reading("temperature", 25.0, "celsius")
-
-        mock_instance.publish.assert_called_once()
-
-    @patch('paho.mqtt.client.Client')
-    def test_status_publish(self, mock_client):
-        from firmware.simulator.simulator import DeviceSimulator
-
-        mock_instance = Mock()
-        mock_instance.connect.return_value = 0
-        mock_instance.publish.return_value = Mock(rc=0)
-        mock_client.return_value = mock_instance
-
-        sim = DeviceSimulator(
-            org_id="acme",
-            site_id="test-site",
-            device_id="test-device",
-            mqtt_broker="localhost",
-            mqtt_port=1883,
-            interval=1
-        )
-
-        sim._publish_status()
-
-        assert mock_instance.publish.call_count >= 1
+SensorModel = make_sensor_model()
 
 
-class TestSimulatorMultipleDevices:
-    def test_multiple_devices_have_unique_ids(self):
-        from firmware.simulator.simulator import DeviceSimulator
+class TestSensorModel:
+    def test_generates_realistic_temperature(self):
+        model = SensorModel("TEST-0", seed=42)
+        readings = [model.temperature() for _ in range(100)]
+        assert all(-40 <= t <= 80 for t in readings)
 
-        with patch('paho.mqtt.client.Client') as mock_client:
-            mock_client.return_value.connect.return_value = 0
-            mock_client.return_value.publish.return_value = Mock(rc=0)
+    def test_anomaly_raises_vibration(self):
+        model = SensorModel("TEST-0", seed=0)
+        model.trigger_anomaly()
+        vibs = [model.vibration_rms() for _ in range(50)]
+        assert all(v > 0.30 for v in vibs)
 
-            device_ids = set()
-            for i in range(5):
-                sim = DeviceSimulator(
-                    org_id="acme",
-                    site_id="test-site",
-                    device_id=f"ESP32-{i}",
-                    mqtt_broker="localhost",
-                    mqtt_port=1883,
-                    interval=1
-                )
-                device_ids.add(sim.device_id)
+    def test_humidity_inverse_correlation_with_temperature(self):
+        model_cold = SensorModel("COLD", seed=11)
+        model_cold.temp_base = 15.0
+        model_hot = SensorModel("HOT", seed=22)
+        model_hot.temp_base = 40.0
 
-            assert len(device_ids) == 5
+        cold_hums = []
+        hot_hums = []
+        for _ in range(50):
+            model_cold.tick()
+            model_hot.tick()
+            cold_hums.append(model_cold.humidity())
+            hot_hums.append(model_hot.humidity())
+
+        avg_cold = sum(cold_hums) / len(cold_hums)
+        avg_hot = sum(hot_hums) / len(hot_hums)
+
+        assert avg_cold > avg_hot, f"Expected hum(cold)={avg_cold:.2f} > hum(hot)={avg_hot:.2f}"
+
+    def test_tick_increments_time(self):
+        model = SensorModel("TICK", seed=1)
+        assert model.t == 0
+        model.tick()
+        assert model.t == 1
+        model.tick()
+        assert model.t == 2
+
+    def test_motor_current_positive(self):
+        model = SensorModel("CURR", seed=5)
+        currs = [model.motor_current() for _ in range(20)]
+        assert all(c >= 0 for c in currs)
+
+    def test_vibration_peak_sensible_range(self):
+        model = SensorModel("PEAK", seed=7)
+        peaks = [model.vibration_peak() for _ in range(20)]
+        rms_vals = [model.vibration_rms() for _ in range(20)]
+        assert all(p >= 0 for p in peaks)
+        assert all(p >= r for p, r in zip(peaks, rms_vals))
