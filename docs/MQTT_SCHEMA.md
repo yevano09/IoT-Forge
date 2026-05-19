@@ -19,7 +19,7 @@ iot/forge/ota/{device_id}/ack
 | org_id      | string | Organisation slug e.g. `acme`                  |
 | site_id     | string | Physical site e.g. `blr-plant-1`              |
 | device_id   | string | Unique device MAC or UUID                      |
-| sensor_type | string | `temperature`, `humidity`, `vibration`, `current` |
+| sensor_type | string | `temperature`, `humidity`, `vibration_rms`, `vibration_peak`, `current` |
 
 ## Payload — Raw Reading
 
@@ -100,6 +100,26 @@ iot/forge/ota/{device_id}/ack
 }
 ```
 
+## Gateway Enrichment (RPi Gateway)
+
+When the RPi Gateway forwards messages to the upstream broker or backend, it adds these fields to every payload:
+
+```json
+{
+  "_gw_ts": 1716000000123,
+  "_gw_id": "rpi-gw-001",
+  "_gw_site": "blr-demo"
+}
+```
+
+| Field       | Type    | Description                            |
+|-------------|---------|----------------------------------------|
+| `_gw_ts`    | integer | Gateway receive timestamp (Unix ms)    |
+| `_gw_id`    | string  | Gateway device ID                      |
+| `_gw_site`  | string  | Site ID from gateway config            |
+
+The backend MQTT subscriber stores all fields as-is in the `readings` table under their respective column names.
+
 ## QoS Levels
 
 | Topic pattern      | QoS | Retain |
@@ -109,6 +129,17 @@ iot/forge/ota/{device_id}/ack
 | `.../cmd/...`      | 1   | false  |
 | `.../cmd/.../ack`  | 1   | false  |
 | `forge/ota/.../push`| 1   | false  |
+
+## Backend MQTT Subscription
+
+The backend's `MQTTSubscriber` subscribes to `iot/#` and routes messages by topic suffix:
+
+| Topic contains | Action                                         |
+|----------------|------------------------------------------------|
+| `/status`      | `db.upsert_device(payload)` — upserts device   |
+| `/raw`         | `db.insert_reading(payload)` + `bus.publish()` |
+
+The `EventBus.publish()` fans out the reading to all connected SSE clients in real time.
 
 ## Scaling Note
 

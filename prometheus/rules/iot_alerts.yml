@@ -1,0 +1,48 @@
+groups:
+  - name: iot_alerts
+    interval: 30s
+    rules:
+      - alert: BackendDown
+        expr: up{job="iot-forge-backend"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Backend API is down"
+          description: "The IoT Forge backend has been unreachable for over 1 minute."
+
+      - alert: NoReadingsReceived
+        expr: rate(sensor_readings_total[5m]) == 0
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "No sensor readings received"
+          description: "No sensor readings in the last 5 minutes."
+
+      - alert: DeviceOffline
+        expr: iot_device_online == 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Device {{ $labels.device_id }} is offline"
+          description: "Device {{ $labels.device_id }} has been offline for over 5 minutes."
+
+      - alert: HighTemperature
+        expr: sensor_reading_value{sensor="temperature"} > 50
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High temperature on {{ $labels.device_id }}"
+          description: "Temperature on {{ $labels.device_id }} is {{ $value }}°C (threshold: 50°C)."
+
+      - alert: HighVibration
+        expr: sensor_reading_value{sensor="vibration_rms"} > 0.3
+        for: 30s
+        labels:
+          severity: warning
+        annotations:
+          summary: "High vibration on {{ $labels.device_id }}"
+          description: "Vibration RMS on {{ $labels.device_id }} is {{ $value }}g (threshold: 0.3g)."

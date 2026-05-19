@@ -1,58 +1,59 @@
-import asyncio
-import os
-import time
-import aiosqlite
+import asyncio, os, time
 from typing import Optional
-
+import aiosqlite
 
 DB_PATH = os.environ.get("DB_PATH", "edge_sense.db")
 
 
 class Database:
     _conn: aiosqlite.Connection | None = None
+    _lock = asyncio.Lock()
 
     async def _get_conn(self) -> aiosqlite.Connection:
         if self._conn is None:
             self._conn = await aiosqlite.connect(DB_PATH)
             self._conn.row_factory = aiosqlite.Row
-            await self._conn.execute("PRAGMA journal_mode=WAL")
-            await self._conn.execute("PRAGMA foreign_keys=ON")
         return self._conn
 
     async def init(self):
-        conn = await self._get_conn()
-        await conn.execute("""
-            CREATE TABLE IF NOT EXISTS readings (
-                id          INTEGER PRIMARY KEY AUTOINCREMENT,
-                device_id   TEXT    NOT NULL,
-                org_id      TEXT,
-                site_id     TEXT,
-                sensor      TEXT    NOT NULL,
-                value       REAL,
-                unit        TEXT,
-                quality     INTEGER DEFAULT 1,
-                ts          INTEGER NOT NULL,
-                seq         INTEGER,
-                fw_version  TEXT,
-                received_at INTEGER NOT NULL
-            )
-        """)
-        await conn.execute("""
-            CREATE INDEX IF NOT EXISTS idx_readings_device_ts
-            ON readings (device_id, ts DESC)
-        """)
-        await conn.execute("""
-            CREATE TABLE IF NOT EXISTS devices (
-                device_id   TEXT PRIMARY KEY,
-                org_id      TEXT,
-                site_id     TEXT,
-                status      TEXT DEFAULT 'unknown',
-                last_seen   INTEGER,
-                fw_version  TEXT,
-                rssi        INTEGER
-            )
-        """)
-        await conn.commit()
+        async with self._lock:
+            conn = await self._get_conn()
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS readings (
+                    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                    device_id   TEXT    NOT NULL,
+                    org_id      TEXT,
+                    site_id     TEXT,
+                    sensor      TEXT    NOT NULL,
+                    value       REAL,
+                    unit        TEXT,
+                    quality     INTEGER DEFAULT 1,
+                    ts          INTEGER NOT NULL,
+                    seq         INTEGER,
+                    fw_version  TEXT,
+                    received_at INTEGER NOT NULL
+                )
+            """)
+            await conn.execute("""
+                CREATE INDEX IF NOT EXISTS idx_readings_device_ts
+                ON readings (device_id, ts DESC)
+            """)
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS devices (
+                    device_id   TEXT PRIMARY KEY,
+                    org_id      TEXT,
+                    site_id     TEXT,
+                    status      TEXT DEFAULT 'unknown',
+                    last_seen   INTEGER,
+                    fw_version  TEXT,
+                    rssi        INTEGER
+                )
+            """)
+            try:
+                await conn.execute("ALTER TABLE readings ADD COLUMN received_at INTEGER NOT NULL DEFAULT 0")
+            except Exception:
+                pass
+            await conn.commit()
 
     async def close(self):
         if self._conn is not None:
@@ -77,7 +78,7 @@ class Database:
             payload.get("ts", int(time.time() * 1000)),
             payload.get("seq"),
             payload.get("fw_version"),
-            int(time.time() * 1000),
+            int(time.time() * 1000)
         ))
         await conn.commit()
 
@@ -98,28 +99,25 @@ class Database:
             payload.get("status", "online"),
             payload.get("ts", int(time.time() * 1000)),
             payload.get("fw_version"),
-            payload.get("rssi"),
+            payload.get("rssi")
         ))
         await conn.commit()
 
     async def get_readings(
         self,
         device_id: Optional[str] = None,
-        sensor:    Optional[str] = None,
-        limit:     int           = 200,
-        since_ts:  Optional[int] = None,
+        sensor: Optional[str] = None,
+        limit: int = 200,
+        since_ts: Optional[int] = None
     ) -> list[dict]:
         query = "SELECT device_id, sensor, value, unit, quality, ts, fw_version FROM readings WHERE 1=1"
         params = []
         if device_id:
-            query += " AND device_id = ?"
-            params.append(device_id)
+            query += " AND device_id = ?"; params.append(device_id)
         if sensor:
-            query += " AND sensor = ?"
-            params.append(sensor)
+            query += " AND sensor = ?"; params.append(sensor)
         if since_ts:
-            query += " AND ts >= ?"
-            params.append(since_ts)
+            query += " AND ts >= ?"; params.append(since_ts)
         query += " ORDER BY ts DESC LIMIT ?"
         params.append(min(limit, 5000))
 

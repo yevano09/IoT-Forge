@@ -9,9 +9,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse
 
 from backend.database        import db
-from backend.metrics         import get_metrics, record_request
+from backend.metrics         import get_metrics, record_request, record_request_duration
 from backend.mqtt_subscriber import subscriber
-from backend.routers        import devices, readings, stream
+from backend.routers         import devices, readings, stream
 
 logging.basicConfig(
     level=logging.INFO,
@@ -62,11 +62,11 @@ async def metrics():
 
 @app.middleware("http")
 async def metrics_middleware(request: Request, call_next):
-    import time as t
-    start = t.time()
+    start = time.time()
     response = await call_next(request)
-    duration = t.time() - start
+    duration = time.time() - start
     record_request(request.method, request.url.path, response.status_code)
+    record_request_duration(request.method, request.url.path, response.status_code, duration)
     return response
 
 

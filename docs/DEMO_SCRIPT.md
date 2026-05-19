@@ -37,7 +37,7 @@ docker-compose ps
 curl http://localhost:8000/api/v1/health
 ```
 
-Expected: `{"status": "healthy", ...}`
+Expected: `{"status": "ok", "ts": 1716000000000, "device_count": 0}`
 
 ### Step 3: Start Simulator (2 min)
 
@@ -63,6 +63,7 @@ Show:
 ```bash
 curl http://localhost:8000/api/v1/devices | python -m json.tool
 curl http://localhost:8000/api/v1/readings/latest | python -m json.tool
+curl -N http://localhost:8000/api/v1/stream   # Ctrl+C after a few events
 ```
 
 ### Cleanup
@@ -101,12 +102,16 @@ curl http://localhost:8000/api/v1/devices
 
 # Readings with filters
 curl "http://localhost:8000/api/v1/readings?sensor=temperature&limit=5"
+
+# SSE live stream (show 3 events)
+timeout 10 curl -N http://localhost:8000/api/v1/stream
 ```
 
 Show database schema:
 ```bash
 # Check SQLite
-ls -la backend/data/
+sqlite3 edge_sense.db ".tables"
+sqlite3 edge_sense.db ".schema readings"
 ```
 
 ### Part 3: Simulator and Anomaly (4 min)
@@ -118,7 +123,7 @@ python firmware/simulator/simulator.py --devices 2 --interval 2 --anomaly
 
 After 30 seconds, show vibration > 0.30g:
 ```bash
-curl http://localhost:8000/api/v1/readings/latest | grep -i vibration
+curl http://localhost:8000/api/v1/readings/latest | python -m json.tool
 ```
 
 ### Part 4: Dashboard Tour (4 min)
@@ -139,7 +144,12 @@ Demonstrate:
 
 ### Part 1: Architecture Overview (5 min)
 
-Walk through ARCHITECTURE.md diagram. Explain each component.
+Walk through ARCHITECTURE.md diagram. Explain each component, especially:
+
+- **ESP32 → Mosquitto** — edge devices publish to local broker
+- **RPi Gateway** — subscribes to local broker, enriches payloads, buffers when offline, optionally bridges to cloud MQTT
+- **Backend** — FastAPI with async SQLite, MQTT subscriber in background thread, EventBus fan-out to SSE
+- **Dashboard** — React + Recharts consuming SSE stream
 
 ### Part 2: ESP32 Firmware (8 min)
 
@@ -173,9 +183,15 @@ Show MQTT subscriber:
 cat backend/mqtt_subscriber.py
 ```
 
+Show EventBus (key to live streaming):
+```bash
+cat backend/event_bus.py
+```
+
 Show routers:
 ```bash
 ls backend/routers/
+cat backend/routers/stream.py
 ```
 
 Test API thoroughly:
@@ -194,6 +210,8 @@ cat dashboard/src/App.jsx
 cat dashboard/src/hooks/useSensorStream.js
 ```
 
+Explain how `useSensorStream` connects to `/api/v1/stream` via `EventSource`.
+
 ### Part 5: Simulator Deep Dive (3 min)
 
 Show simulator code:
@@ -206,15 +224,36 @@ Run with multiple devices:
 python firmware/simulator/simulator.py --devices 3 --interval 2 --anomaly
 ```
 
-### Part 6: Gateway (2 min)
+### Part 6: RPi Gateway (2 min)
 
-Show gateway:
+Show gateway files:
 ```bash
-ls firmware/rpi_gateway/
+ls -la firmware/rpi_gateway/
 cat firmware/rpi_gateway/gateway_config.yaml
+cat firmware/rpi_gateway/gateway.py
 ```
 
-### Part 7: Full Demo with Anomaly (5 min)
+Explain the gateway's role:
+- Listens on `iot/{org}/{site}/#`
+- Enriches with `_gw_ts`, `_gw_id`, `_gw_site`
+- Buffers upstream messages when cloud is offline
+- Exposes `/health` and `/devices` on port 8080
+- Flushes buffer on reconnect
+
+### Part 7: Tests (2 min)
+
+Run the test suite:
+```bash
+pytest tests/ -v
+```
+
+Point out:
+- 4 sensor driver tests
+- 6 simulator model tests
+- 5 API endpoint tests (health, devices, readings, latest, SSE stream)
+- 8 MQTT schema validation tests
+
+### Part 8: Full Demo with Anomaly (5 min)
 
 Restart everything fresh:
 ```bash
@@ -238,6 +277,7 @@ Show in dashboard:
 | Backend won't start | Check `docker-compose logs backend` |
 | No data in dashboard | Verify simulator is running |
 | MQTT connection failed | Check mosquitto: `docker-compose logs mosquitto` |
+| SSE stream empty | Check backend MQTT subscriber connected to broker |
 | Port already in use | Stop other services or change ports in docker-compose.yml |
 
 ## Presentation Tips
@@ -257,10 +297,12 @@ Show in dashboard:
 
 ### For Engineers
 - Show all source code
-- Explain architecture decisions
+- Explain architecture decisions (EventBus, aiosqlite, thread-safe pub/sub)
 - Discuss scaling patterns
+- Walk through the gateway enrichment pipeline
 
 ### For Customers
 - Emphasize reliability and offline handling
 - Show easy setup
 - Demonstrate anomaly detection
+- Show buffering when upstream is unavailable

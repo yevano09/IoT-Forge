@@ -4,7 +4,7 @@ help:
 	@echo "IoT Forge - Makefile Commands"
 	@echo "================================"
 	@echo "make build          - Build all Docker images"
-	@echo "make up              - Start all services"
+	@echo "make up              - Start all services (incl. Prometheus + Grafana)"
 	@echo "make down            - Stop all services"
 	@echo "make logs            - Show logs from all services"
 	@echo "make clean           - Remove containers, volumes, images"
@@ -12,16 +12,23 @@ help:
 	@echo "make install-backend - Install backend dependencies"
 	@echo "make install-simulator - Install simulator dependencies"
 	@echo "make install-gateway  - Install gateway dependencies"
+	@echo "make health          - Check backend API health"
+	@echo "make devices         - List known devices"
+	@echo "make readings        - Show latest readings"
+	@echo "make prometheus      - Open Prometheus web UI"
+	@echo "make grafana         - Open Grafana web UI"
 
 build:
 	docker-compose build
 
 up:
-	docker-compose up -d
+	docker-compose up -d --build
 	@echo "Services started:"
 	@echo "  - Mosquitto:  localhost:1883"
 	@echo "  - Backend:   localhost:8000"
 	@echo "  - Dashboard: localhost:3000"
+	@echo "  - Prometheus: localhost:9090"
+	@echo "  - Grafana:    localhost:3030 (admin/admin)"
 
 down:
 	docker-compose down
@@ -68,3 +75,11 @@ devices:
 
 readings:
 	@curl -s http://localhost:8000/api/v1/readings/latest | python -m json.tool
+
+prometheus:
+	@echo "Opening Prometheus web UI at http://localhost:9090"
+	@start http://localhost:9090 2>/dev/null || xdg-open http://localhost:9090 2>/dev/null || open http://localhost:9090
+
+grafana:
+	@echo "Opening Grafana web UI at http://localhost:3030 (admin/admin)"
+	@start http://localhost:3030 2>/dev/null || xdg-open http://localhost:3030 2>/dev/null || open http://localhost:3030

@@ -8,20 +8,24 @@ router = APIRouter()
 
 
 @router.get("/stream")
-async def stream(max_events: int = 0, keepalive: float = 30.0):
+async def stream():
+    """
+    Server-Sent Events stream. Pushes every new sensor reading in real time.
+
+    Each event:  data: {JSON payload}\n\n
+    Keepalive:   : keepalive\n\n   (sent every 30s to prevent proxy timeouts)
+
+    Connect:  EventSource('http://localhost:8000/api/v1/stream')
+    """
     q = bus.subscribe()
-    sent = 0
 
     async def event_generator():
-        nonlocal sent
         try:
-            while max_events == 0 or sent < max_events:
+            while True:
                 try:
-                    payload = await asyncio.wait_for(q.get(), timeout=keepalive)
-                    sent += 1
+                    payload = await asyncio.wait_for(q.get(), timeout=30.0)
                     yield f"data: {json.dumps(payload)}\n\n"
                 except asyncio.TimeoutError:
-                    sent += 1
                     yield ": keepalive\n\n"
         except asyncio.CancelledError:
             pass

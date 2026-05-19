@@ -1,26 +1,20 @@
 gateway:
-  device_id: "rpi-gateway-001"
-  org_id: "acme"
-  site_id: "blr-plant-1"
+  id: "rpi-gw-001"
+  org_id: "demo"
+  site_id: "blr-demo"
 
 local_broker:
   host: "localhost"
   port: 1883
-  keepalive: 60
 
+# Set enabled: true and fill host/credentials to bridge to cloud MQTT
 upstream_broker:
-  host: "mqtt.example.com"
-  port: 1883
+  enabled: false
+  host: "YOUR_CLOUD_BROKER_HOST"
+  port: 8883
   username: ""
   password: ""
-  keepalive: 60
 
-buffer:
-  max_records: 1000
-  file_path: "/tmp/gateway_buffer.json"
-
-health:
-  port: 8080
-
-logging:
-  level: "INFO"
+buffer_size: 10000        # max in-memory messages when upstream is offline
+stats_interval_s: 30      # how often to log stats
+api_port: 8080            # port for /health and /devices HTTP endpoints

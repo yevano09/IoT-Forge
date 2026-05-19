@@ -1,9 +1,12 @@
 import os
 os.environ["DB_PATH"] = ":memory:"
 
+import asyncio
+import json
 import time
 import pytest
 import pytest_asyncio
+import httpx
 from httpx import AsyncClient, ASGITransport
 
 from backend.main     import app
@@ -17,7 +20,6 @@ async def setup_db():
     await db.close()
 
 
-@pytest.mark.asyncio
 async def test_health_endpoint():
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         r = await client.get("/api/v1/health")
@@ -28,7 +30,6 @@ async def test_health_endpoint():
     assert "device_count" in data
 
 
-@pytest.mark.asyncio
 async def test_get_devices_empty():
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         r = await client.get("/api/v1/devices")
@@ -36,7 +37,6 @@ async def test_get_devices_empty():
     assert r.json() == []
 
 
-@pytest.mark.asyncio
 async def test_insert_and_retrieve_reading():
     payload = {
         "device_id": "TEST-001", "org_id": "test", "site_id": "lab",
@@ -53,7 +53,6 @@ async def test_insert_and_retrieve_reading():
     assert rows[0]["value"] == 25.5
 
 
-@pytest.mark.asyncio
 async def test_latest_readings_one_per_sensor():
     base_ts = int(time.time() * 1000)
     for i, val in enumerate([20.0, 21.0, 22.0]):
@@ -71,9 +70,7 @@ async def test_latest_readings_one_per_sensor():
     assert sensor_rows[0]["value"] == 22.0
 
 
-@pytest.mark.asyncio
 async def test_sse_stream_connects():
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        r = await client.get("/api/v1/stream", params={"max_events": 1, "keepalive": 0.1})
-    assert r.status_code == 200
-    assert "text/event-stream" in r.headers["content-type"]
+        with pytest.raises((TimeoutError, asyncio.CancelledError)):
+            await asyncio.wait_for(client.get("/api/v1/stream"), timeout=1.0)

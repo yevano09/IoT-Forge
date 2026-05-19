@@ -8,10 +8,11 @@ services:
     volumes:
       - ./mosquitto.conf:/mosquitto/config/mosquitto.conf
     healthcheck:
-      test: ["CMD", "mosquitto_sub", "-t", "$$SYS/#", "-C", "1", "-i", "healthcheck", "-W", "3"]
+      test: ["CMD", "mosquitto_pub", "-t", "iot/healthcheck", "-m", "ok", "-i", "hc_pub"]
       interval: 10s
       timeout: 5s
       retries: 5
+    restart: unless-stopped
 
   backend:
     build:
@@ -30,11 +31,12 @@ services:
       mosquitto:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/health"]
+      test: ["CMD", "python3", "-c", "import http.client; c=http.client.HTTPConnection('localhost',8000); c.request('GET','/api/v1/health'); r=c.getresponse(); exit(0 if r.status==200 else 1)"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 40s
+    restart: unless-stopped
 
   dashboard:
     build:
@@ -47,6 +49,7 @@ services:
       - VITE_API_BASE=http://localhost:8000
     depends_on:
       - backend
+    restart: unless-stopped
 
   prometheus:
     image: prom/prometheus:v2.48.0
@@ -63,6 +66,7 @@ services:
       - '--web.console.templates=/usr/share/prometheus/consoles'
     depends_on:
       - backend
+    restart: unless-stopped
 
   grafana:
     image: grafana/grafana:10.2.3
@@ -76,8 +80,13 @@ services:
     volumes:
       - ./grafana/provisioning:/etc/grafana/provisioning
       - ./grafana/dashboards:/var/lib/grafana/dashboards
+      - grafana-data:/var/lib/grafana
     depends_on:
       - prometheus
+    restart: unless-stopped
+
+volumes:
+  grafana-data:
 
 networks:
   default:
