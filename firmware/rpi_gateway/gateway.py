@@ -59,6 +59,7 @@ class Gateway:
                 "topic": msg.topic
             }
         enriched = json.dumps(payload)
+        log.info(f"Enriched  topic={msg.topic}  _gw_id={payload['_gw_id']}")
         if self._up_connected:
             self._upstream.publish(msg.topic, enriched, qos=0)
             self._stats["forwarded"] += 1

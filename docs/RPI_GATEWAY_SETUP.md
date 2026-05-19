@@ -154,11 +154,22 @@ mosquitto_pub -h localhost -t "iot/demo/blr-demo/ESP32-001/temperature/raw" \
   -m '{"device_id":"ESP32-001","sensor":"temperature","value":25.5,"unit":"celsius","ts":'"$(date +%s)"'000,"seq":1}'
 ```
 
-The gateway enriches the payload with `_gw_ts`, `_gw_id`, `_gw_site` and prints it:
+The gateway enriches the payload with `_gw_ts`, `_gw_id`, `_gw_site` fields. Check the gateway logs to confirm:
+
+```bash
+sudo journalctl -u iot-gateway -n 5  # if running as a service
+# or look at the terminal output if running manually
+```
+
+Expected log line:
 
 ```
-iot/demo/blr-demo/ESP32-001/temperature/raw {"device_id":"ESP32-001","sensor":"temperature","value":25.5,...,"_gw_ts":...,"_gw_id":"rpi-gw-001","_gw_site":"blr-demo"}
+12:35:00  INFO     gateway   Enriched  topic=iot/demo/blr-demo/ESP32-001/temperature/raw  _gw_id=rpi-gw-001
 ```
+
+> **Note:** The enriched payload is forwarded to the upstream broker or buffered in memory — it is **not** republished to the local Mosquitto. Running `mosquitto_sub -h localhost -t "iot/#"` will show the **original** payload (without `_gw_*` fields). To see the enriched version, either:
+> - Enable the upstream broker and subscribe there
+> - Or check the gateway's `/health` endpoint for buffered/forwarded counts
 
 ## 8. Run as a Systemd Service
 
