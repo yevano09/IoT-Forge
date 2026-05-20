@@ -1,126 +1,73 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react'
 
-const MAX_READINGS = 100;
-const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8000';
+const BUFFER_SIZE = 100
+const RECONNECT_DELAY_MS = 3000
 
-export function useSensorStream() {
-  const [devices, setDevices] = useState([]);
-  const [selectedDevice, setSelectedDevice] = useState(null);
-  const [latestReadings, setLatestReadings] = useState({});
-  const [readingsHistory, setReadingsHistory] = useState({});
-  const [connected, setConnected] = useState(false);
-  const eventSourceRef = useRef(null);
-  const reconnectTimeoutRef = useRef(null);
-
-  const fetchDevices = useCallback(async () => {
-    try {
-      const response = await fetch(`${API_BASE}/api/v1/devices`);
-      if (response.ok) {
-        const data = await response.json();
-        setDevices(data);
-      }
-    } catch (error) {
-      console.error('Failed to fetch devices:', error);
-    }
-  }, []);
-
-  const fetchLatestReadings = useCallback(async () => {
-    try {
-      const url = selectedDevice
-        ? `${API_BASE}/api/v1/readings/latest?device_id=${selectedDevice}`
-        : `${API_BASE}/api/v1/readings/latest`;
-      const response = await fetch(url);
-      if (response.ok) {
-        const data = await response.json();
-        const readingMap = {};
-        data.readings.forEach(reading => {
-          const key = `${reading.device_id}-${reading.sensor}`;
-          readingMap[key] = reading;
-        });
-        setLatestReadings(readingMap);
-      }
-    } catch (error) {
-      console.error('Failed to fetch latest readings:', error);
-    }
-  }, [selectedDevice]);
+export function useSensorStream(apiBase = '') {
+  const [readings, setReadings]   = useState(new Map())
+  const [connected, setConnected] = useState(false)
+  const [lastEvent, setLastEvent] = useState(null)
+  const esRef      = useRef(null)
+  const retryRef   = useRef(null)
 
   const connect = useCallback(() => {
-    if (eventSourceRef.current) {
-      eventSourceRef.current.close();
+    if (esRef.current) {
+      esRef.current.close()
+      esRef.current = null
     }
 
-    const eventSource = new EventSource(`${API_BASE}/api/v1/stream`);
-    eventSourceRef.current = eventSource;
+    const url = `${apiBase}/api/v1/stream`
+    const es  = new EventSource(url)
+    esRef.current = es
 
-    eventSource.onopen = () => {
-      setConnected(true);
-      console.log('SSE connected');
-    };
-
-    eventSource.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        if (data.payload) {
-          const reading = data.payload;
-          const key = `${reading.device_id}-${reading.sensor}`;
-
-          setLatestReadings(prev => ({
-            ...prev,
-            [key]: reading
-          }));
-
-          setReadingsHistory(prev => {
-            const history = prev[key] || [];
-            const newHistory = [...history, reading].slice(-MAX_READINGS);
-            return { ...prev, [key]: newHistory };
-          });
-
-          if (!selectedDevice) {
-            setSelectedDevice(reading.device_id);
-          }
-        }
-      } catch (error) {
-        console.error('SSE parse error:', error);
+    es.onopen = () => {
+      setConnected(true)
+      if (retryRef.current) {
+        clearTimeout(retryRef.current)
+        retryRef.current = null
       }
-    };
+    }
 
-    eventSource.onerror = () => {
-      setConnected(false);
-      eventSource.close();
-      eventSourceRef.current = null;
+    es.onmessage = (event) => {
+      try {
+        const payload = JSON.parse(event.data)
+        const key = `${payload.device_id}::${payload.sensor}`
 
-      reconnectTimeoutRef.current = setTimeout(() => {
-        connect();
-      }, 5000);
-    };
-  }, [selectedDevice]);
+        setReadings(prev => {
+          const next    = new Map(prev)
+          const current = next.get(key) || []
+          const updated = [...current, {
+            ts:        payload.ts,
+            value:     payload.value,
+            unit:      payload.unit,
+            quality:   payload.quality,
+            device_id: payload.device_id,
+            sensor:    payload.sensor,
+          }].slice(-BUFFER_SIZE)
+          next.set(key, updated)
+          return next
+        })
+
+        setLastEvent(payload)
+      } catch (e) {
+      }
+    }
+
+    es.onerror = () => {
+      setConnected(false)
+      es.close()
+      esRef.current = null
+      retryRef.current = setTimeout(connect, RECONNECT_DELAY_MS)
+    }
+  }, [apiBase])
 
   useEffect(() => {
-    fetchDevices();
-    fetchLatestReadings();
-    connect();
-
-    const interval = setInterval(fetchDevices, 10000);
-    const latestInterval = setInterval(fetchLatestReadings, 5000);
-
+    connect()
     return () => {
-      clearInterval(interval);
-      clearInterval(latestInterval);
-      if (eventSourceRef.current) {
-        eventSourceRef.current.close();
-      }
-      if (reconnectTimeoutRef.current) {
-        clearTimeout(reconnectTimeoutRef.current);
-      }
-    };
-  }, [connect, fetchDevices, fetchLatestReadings]);
+      if (esRef.current)  esRef.current.close()
+      if (retryRef.current) clearTimeout(retryRef.current)
+    }
+  }, [connect])
 
-  return {
-    devices,
-    selectedDevice,
-    setSelectedDevice,
-    latestReadings,
-    readingsHistory,
-    connected
-  };
+  return { readings, connected, lastEvent }
 }

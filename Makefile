@@ -1,85 +1,46 @@
-.PHONY: help build up down logs clean test install-simulator install-gateway install-backend install-dashboard
+.PHONY: run stop demo sim sim1000 test logs clean install-deps
 
-help:
-	@echo "IoT Forge - Makefile Commands"
-	@echo "================================"
-	@echo "make build          - Build all Docker images"
-	@echo "make up              - Start all services (incl. Prometheus + Grafana)"
-	@echo "make down            - Stop all services"
-	@echo "make logs            - Show logs from all services"
-	@echo "make clean           - Remove containers, volumes, images"
-	@echo "make test            - Run all tests"
-	@echo "make install-backend - Install backend dependencies"
-	@echo "make install-simulator - Install simulator dependencies"
-	@echo "make install-gateway  - Install gateway dependencies"
-	@echo "make health          - Check backend API health"
-	@echo "make devices         - List known devices"
-	@echo "make readings        - Show latest readings"
-	@echo "make prometheus      - Open Prometheus web UI"
-	@echo "make grafana         - Open Grafana web UI"
+run:
+	docker-compose up -d
+	@echo ""
+	@echo "  Services starting..."
+	@echo "  Dashboard : http://localhost:3000"
+	@echo "  API docs  : http://localhost:8000/docs"
+	@echo "  MQTT      : localhost:1883"
+	@echo ""
+	@echo "  Run 'make demo' in a second terminal to start the simulator."
 
-build:
-	docker-compose build
-
-up:
-	docker-compose up -d --build
-	@echo "Services started:"
-	@echo "  - Mosquitto:  localhost:1883"
-	@echo "  - Backend:   localhost:8000"
-	@echo "  - Dashboard: localhost:3000"
-	@echo "  - Prometheus: localhost:9090"
-	@echo "  - Grafana:    localhost:3030 (admin/admin)"
-
-down:
+stop:
 	docker-compose down
+
+demo:
+	cd firmware/simulator && python3 simulator.py \
+		--devices 3 --interval 2 --anomaly --broker localhost
+
+sim:
+	cd firmware/simulator && python3 simulator.py \
+		--devices 5 --interval 5 --broker localhost
+
+sim1000:
+	cd firmware/simulator && python3 simulator.py \
+		--devices 1000 --interval 1 --broker localhost
+
+test:
+	cd .. && pytest month1-edge-sense/tests/ -v
+
+test-cov:
+	cd .. && pytest month1-edge-sense/tests/ -v --tb=short \
+		--cov=month1-edge-sense/backend --cov-report=term-missing
 
 logs:
 	docker-compose logs -f
 
 clean:
 	docker-compose down -v
-	docker rmi $$(docker images -q iot-forge-*) 2>/dev/null || true
+	rm -f backend/edge_sense.db
+	@echo "Cleaned."
 
-test:
-	cd tests && pip install -q pytest pytest-asyncio httpx && pytest -v
-
-install-backend:
+install-deps:
 	pip install -r backend/requirements.txt
-
-install-simulator:
 	pip install -r firmware/simulator/requirements.txt
-
-install-gateway:
 	pip install -r firmware/rpi_gateway/requirements.txt
-
-install-dashboard:
-	cd dashboard && npm install
-
-dev-backend:
-	cd backend && uvicorn main:app --reload --host 0.0.0.0 --port 8000
-
-dev-dashboard:
-	cd dashboard && npm run dev
-
-simulator:
-	python firmware/simulator/simulator.py --devices 3 --interval 2 --anomaly
-
-gateway:
-	python firmware/rpi_gateway/gateway.py firmware/rpi_gateway/gateway_config.yaml
-
-health:
-	@curl -s http://localhost:8000/api/v1/health | python -m json.tool
-
-devices:
-	@curl -s http://localhost:8000/api/v1/devices | python -m json.tool
-
-readings:
-	@curl -s http://localhost:8000/api/v1/readings/latest | python -m json.tool
-
-prometheus:
-	@echo "Opening Prometheus web UI at http://localhost:9090"
-	@start http://localhost:9090 2>/dev/null || xdg-open http://localhost:9090 2>/dev/null || open http://localhost:9090
-
-grafana:
-	@echo "Opening Grafana web UI at http://localhost:3030 (admin/admin)"
-	@start http://localhost:3030 2>/dev/null || xdg-open http://localhost:3030 2>/dev/null || open http://localhost:3030

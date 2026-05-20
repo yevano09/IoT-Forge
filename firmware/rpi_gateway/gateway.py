@@ -50,6 +50,8 @@ class Gateway:
         except json.JSONDecodeError:
             log.warning(f"Bad JSON on {msg.topic}")
             return
+        if "_gw_ts" in payload:
+            return
         payload["_gw_ts"] = int(time.time() * 1000)
         payload["_gw_id"] = self.cfg["gateway"]["id"]
         payload["_gw_site"] = self.cfg["gateway"]["site_id"]

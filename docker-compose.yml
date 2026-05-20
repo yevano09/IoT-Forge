@@ -1,18 +1,19 @@
 services:
+
   mosquitto:
-    image: eclipse-mosquitto:2.0.18
-    container_name: iot-forge-mosquitto
+    image: eclipse-mosquitto:2.0
+    container_name: iot-forge-broker
     ports:
       - "1883:1883"
       - "9001:9001"
     volumes:
-      - ./mosquitto.conf:/mosquitto/config/mosquitto.conf
+      - ./mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+    restart: unless-stopped
     healthcheck:
       test: ["CMD", "mosquitto_pub", "-t", "iot/healthcheck", "-m", "ok", "-i", "hc_pub"]
       interval: 10s
       timeout: 5s
-      retries: 5
-    restart: unless-stopped
+      retries: 3
 
   backend:
     build:
@@ -24,19 +25,19 @@ services:
     environment:
       - MQTT_HOST=mosquitto
       - MQTT_PORT=1883
-      - DB_PATH=/data/iot_data.db
+      - DB_PATH=/data/edge_sense.db
     volumes:
-      - ./backend/data:/data
+      - backend_data:/data
     depends_on:
       mosquitto:
         condition: service_healthy
-    healthcheck:
-      test: ["CMD", "python3", "-c", "import http.client; c=http.client.HTTPConnection('localhost',8000); c.request('GET','/api/v1/health'); r=c.getresponse(); exit(0 if r.status==200 else 1)"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 40s
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
 
   dashboard:
     build:
@@ -45,11 +46,28 @@ services:
     container_name: iot-forge-dashboard
     ports:
       - "3000:80"
-    environment:
-      - VITE_API_BASE=http://localhost:8000
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
     restart: unless-stopped
+
+  gateway:
+    build:
+      context: ./firmware/rpi_gateway
+      dockerfile: Dockerfile
+    container_name: iot-forge-gateway
+    ports:
+      - "8081:8080"
+    depends_on:
+      mosquitto:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/health')"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
 
   prometheus:
     image: prom/prometheus:v2.48.0
@@ -86,8 +104,5 @@ services:
     restart: unless-stopped
 
 volumes:
+  backend_data:
   grafana-data:
-
-networks:
-  default:
-    name: iot-forge-network

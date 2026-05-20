@@ -1,542 +1,241 @@
 # IoT Forge — Edge Sense
 
-A complete IoT platform for real-time sensor data collection, processing, and visualization.
-
-## Overview
-
-IoT Forge is a full-stack IoT solution that collects sensor data from ESP32 devices, processes it through a backend API, and displays it in a real-time React dashboard. It includes offline buffering, MQTT communication, anomaly detection, an RPi gateway for edge bridging, and an SSE (Server-Sent Events) live stream.
-
-## Features
-
-- **ESP32 Firmware**: MicroPython-based firmware with pluggable sensor drivers
-- **Offline Buffering**: Survives power loss with up to 500 buffered readings
-- **MQTT Integration**: TLS support, auto-reconnection with exponential backoff
-- **Device Simulator**: Test tool for simulating multiple devices with anomaly injection
-- **RPi Gateway**: Bridge for local MQTT to upstream systems with payload enrichment
-- **Backend API**: FastAPI with async SQLite, REST endpoints, and SSE streaming
-- **Real-time Dashboard**: React + Recharts with live updates via Server-Sent Events
-- **Event Bus**: Thread-safe pub/sub for pushing MQTT messages to SSE clients
-- **CrewAI Integration**: AI-powered task planning and project management
+A complete, open-source IoT platform for real-time sensor monitoring. ESP32 devices publish readings over MQTT to a Mosquitto broker. A Python simulator mimics hundreds of factory sensors. A FastAPI backend ingests, stores, and streams the data. A React dashboard displays live gauges and time-series charts. Prometheus and Grafana provide production-grade alerting and dashboards. CrewAI agents assist with development tasks. This is Month 1 of a 6-month IoT platform build.
 
 ## Architecture
 
 ```
-ESP32 Device ──MQTT──→ Mosquitto Broker ──→ RPi Gateway ──→ Cloud MQTT (optional)
-                          :1883                (enrich + buffer)
-                            │
-                            ▼
-                     Backend API (FastAPI)
-                     ┌─────────┼─────────┬────────────┐
-                     │         │         │            │
-                  SQLite    EventBus    REST API   /metrics
-                  (async)   (pub/sub)   (/api/v1) (Prometheus)
-                                     │            │
-                                     ▼            ▼
-                            React Dashboard   Prometheus
-                            (SSE stream)      :9090
-                                                │
-                                                ▼
-                                            Grafana
-                                            :3030
+ESP32 sensors ──MQTT──> Mosquitto (local) ──> RPi Gateway ──> Cloud MQTT
+Python sim    ────────/         │                                        ^
+                               │                                    (or Docker Gateway
+                        [Docker Gateway] ────────────────────────────  for dev testing)
+                               │
+                       FastAPI backend (MQTT subscriber)
+                           │              │
+                        SQLite         EventBus
+                           │              │
+                     REST API         SSE stream
+                           │              │
+                    React Dashboard (port 3000)
+                           │
+                    RPi Gateway Panel
+                 (upstream status, forwarded,
+                  buffered, buffer size)
 ```
 
-See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for full diagram.
-
-## Prerequisites
-
-- Docker and Docker Compose
-- Python 3.8+ (for simulator/gateway)
-- Node.js 18+ (for dashboard development)
-- MQTT broker (included via Docker)
-
-## Quick Start
-
-### 1. Start All Services
+## Quick start
 
 ```bash
-# Clone and navigate to project
-cd month1-edge-sense
-
-# Start infrastructure
-docker-compose up -d --build
-
-# Verify services
-docker-compose ps
+git clone <repo> && cd month1-edge-sense
+docker-compose up -d
+python firmware/simulator/simulator.py --devices 3 --interval 2 --anomaly
+# open http://localhost:3000
+# open http://localhost:8000/docs
+# gateway API at http://localhost:8081/health
 ```
 
-Expected output:
-```
-NAME                IMAGE                    STATUS
-iot-forge-mosquitto eclipse-mosquitto:2.0.18  Up
-iot-forge-backend   backend:latest           Up
-iot-forge-dashboard dashboard:latest         Up
+Six services start automatically: Mosquitto, backend, dashboard, Prometheus, Grafana, and the RPi Gateway (Docker container). The gateway subscribes to `iot/demo/blr-demo/#`, enriches every message with `_gw_ts`, `_gw_id`, and `_gw_site` fields, and forwards upstream — exactly like a physical Raspberry Pi gateway.
+
+## Gateway enrichment
+
+The gateway bridges a local MQTT broker (on-device Mosquitto) to the upstream cloud broker. Each forwarded message is enriched with:
+
+| Field | Description | Example |
+|-------|-------------|---------|
+| `_gw_ts` | Enrichment timestamp (ms) | `1779272796572` |
+| `_gw_id` | Gateway identity | `docker-gw-001` / `rpi-gw-001` |
+| `_gw_site` | Deployment site | `blr-demo` |
+
+A `_gw_ts` guard prevents re-enriching messages that were already enriched, avoiding infinite loops when local and upstream share a broker.
+
+### Dashboard — Gateway Panel
+
+The sidebar shows an **RPi Gateway** section (bottom of the device list) that polls `/gw/health` every 10 seconds:
+
+- **Upstream** — green `Connected` / red `Disconnected` dot
+- **Devices** — number of unique devices the gateway has seen
+- **Forwarded** — total messages forwarded to upstream
+- **Buffered** — total messages buffered while offline
+- **Buffer** — current buffer queue depth (turns amber when non-zero)
+
+### Dashboard — Device List
+
+Devices are automatically split into **online** (visible directly) and **offline** (collapsed under a `▶ Offline (N)` accordion at the bottom). Click the accordion to expand and inspect offline devices. A device is considered offline when `last_seen > 90s` ago.
+
+## Add a new sensor in 15 minutes
+
+**Step 1:** Create `firmware/esp32/drivers/my_sensor.py`:
+
+```python
+class Driver:
+    def __init__(self, config, global_cfg):
+        self.pin = config.get("data_pin")
+
+    def read(self):
+        return [{
+            "sensor": "my_sensor",
+            "value": 42.0,
+            "unit": "custom",
+            "quality": 1,
+        }]
 ```
 
-### 2. Verify Backend
+**Step 2:** Add one entry to `firmware/esp32/config.json`:
 
-```bash
-curl http://localhost:8000/api/v1/health
+```json
+"sensors": [
+  {"driver": "my_sensor", "config": {"data_pin": 4}}
+]
 ```
 
-Expected:
+**Step 3:** Flash the device or restart the simulator. The new sensor appears in the dashboard automatically.
+
+## Configuration reference
+
+### `firmware/esp32/config.json`
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `wifi.ssid` | string | — | Wi-Fi network name |
+| `wifi.password` | string | — | Wi-Fi password |
+| `mqtt.broker` | string | `"localhost"` | MQTT broker hostname |
+| `mqtt.port` | int | `1883` | MQTT broker port |
+| `mqtt.tls_enabled` | bool | `false` | Enable TLS for MQTT |
+| `mqtt.org_id` | string | `"demo"` | Organisation ID |
+| `mqtt.site_id` | string | `"site-1"` | Site ID |
+| `sensors` | array | `[]` | Sensor driver configurations |
+| `sensors[].driver` | string | — | Driver module name |
+| `sensors[].config` | object | `{}` | Driver-specific config |
+| `interval_s` | int | `5` | Reading interval in seconds |
+| `buffer.max_size` | int | `500` | Max offline buffer entries |
+| `status.interval_s` | int | `60` | Status heartbeat interval |
+
+### `firmware/rpi_gateway/gateway_config.yaml`
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `gateway.id` | string | — | Unique gateway identifier |
+| `gateway.org_id` | string | — | Organisation ID |
+| `gateway.site_id` | string | — | Site ID |
+| `local_broker.host` | string | `"localhost"` | Local Mosquitto host |
+| `local_broker.port` | int | `1883` | Local Mosquitto port |
+| `upstream_broker.enabled` | bool | `false` | Enable cloud bridge |
+| `upstream_broker.host` | string | — | Upstream broker host |
+| `upstream_broker.port` | int | `8883` | Upstream broker port (TLS) |
+| `upstream_broker.username` | string | `""` | Upstream broker username |
+| `upstream_broker.password` | string | `""` | Upstream broker password |
+| `buffer_size` | int | `10000` | Max buffered messages |
+| `stats_interval_s` | int | `30` | Stats log interval |
+| `api_port` | int | `8080` | Gateway API port |
+
+## MQTT topic schema
+
+| Topic pattern | Purpose |
+|---------------|---------|
+| `iot/{org}/{site}/{device}/{sensor}/raw` | Sensor reading |
+| `iot/{org}/{site}/{device}/status` | Device heartbeat |
+| `iot/{org}/{site}/{device}/cmd/{command}` | Command to device |
+| `iot/{org}/{site}/{device}/cmd/{command}/ack` | Command acknowledgement |
+
+### Raw reading payload
+
+```json
+{
+  "device_id": "ESP32-A1B2C3",
+  "org_id": "acme",
+  "site_id": "blr-plant-1",
+  "sensor": "temperature",
+  "value": 42.7,
+  "unit": "celsius",
+  "quality": 1,
+  "ts": 1716000000000,
+  "seq": 1042,
+  "fw_version": "1.0.3"
+}
+```
+
+### Status payload
+
+```json
+{
+  "device_id": "ESP32-A1B2C3",
+  "status": "online",
+  "rssi": -67,
+  "heap_free": 142336,
+  "uptime_s": 86400,
+  "ts": 1716000000000,
+  "fw_version": "1.0.3"
+}
+```
+
+## REST API reference
+
+### Backend API
+
+| Method | Endpoint | Description | Curl example |
+|--------|----------|-------------|--------------|
+| GET | `/api/v1/health` | Service health | `curl http://localhost:8000/api/v1/health` |
+| GET | `/api/v1/devices` | List all devices | `curl http://localhost:8000/api/v1/devices` |
+| GET | `/api/v1/readings` | Query readings | `curl "http://localhost:8000/api/v1/readings?sensor=temperature&limit=5"` |
+| GET | `/api/v1/readings/latest` | Latest reading per sensor | `curl http://localhost:8000/api/v1/readings/latest` |
+| GET | `/api/v1/stream` | SSE live stream | `curl -N http://localhost:8000/api/v1/stream` |
+
+### Gateway API (proxied via dashboard at `/gw/`)
+
+| Method | Endpoint | Description | Curl example |
+|--------|----------|-------------|--------------|
+| GET | `/gw/health` | Gateway health & stats | `curl http://localhost:3000/gw/health` |
+| GET | `/gw/devices` | Devices known to gateway | `curl http://localhost:3000/gw/devices` |
+| GET | `/gw/metrics` | Prometheus metrics | `curl http://localhost:3000/gw/metrics` |
+
+### Example response — `/api/v1/health`
+
+```json
+{"status": "ok", "ts": 1716000000000, "device_count": 3}
+```
+
+### Example response — `/api/v1/devices`
+
+```json
+[
+  {"device_id": "SIM-DEVICE-0000", "status": "online", "last_seen": 1716000000000, "fw_version": "sim-1.0.0"}
+]
+```
+
+### Example response — `/api/v1/readings/latest`
+
+```json
+[
+  {"device_id": "SIM-DEVICE-0000", "sensor": "temperature", "value": 28.12, "unit": "celsius", "ts": 1716000000000}
+]
+```
+
+### Example response — `/gw/health`
+
 ```json
 {
   "status": "ok",
-  "ts": 1716000000000,
-  "device_count": 0
+  "upstream_connected": true,
+  "known_devices": 3,
+  "buffer_size": 0,
+  "forwarded": 3244,
+  "buffered": 3
 }
 ```
 
-### 3. Start Simulator (Generate Test Data)
+## Scaling to 10,000 devices
 
-```bash
-# Install dependencies
-pip install -r firmware/simulator/requirements.txt
+| Component | Dev | Production | Change required |
+|-----------|-----|------------|-----------------|
+| MQTT broker | Mosquitto (single node) | EMQX cluster | Config swap |
+| Edge gateway | Docker Gateway (dev) / RPi Gateway (production) | RPi Gateway with upstream bridge | Config swap |
+| Database | SQLite | TimescaleDB | `DB_PATH` → `DATABASE_URL` |
+| Message buffer | In-process queue | Kafka | Config swap |
+| Container orchestration | Docker Compose | Kubernetes | Helm chart |
+| API gateway | None | Kong / Traefik | Add reverse proxy |
 
-# Run simulator with 3 devices
-python firmware/simulator/simulator.py --devices 3 --interval 2
-```
+All changes are config or env-var swaps. No code changes required.
 
-### 4. View Dashboard
+## Month 2 preview — Fleet Commander
 
-Open: http://localhost:3000
-
-You should see:
-- Device list on the left
-- Live sensor readings (temperature, humidity, vibration)
-- Real-time updating charts
-
-### 5. Check Data via API
-
-```bash
-# List devices
-curl http://localhost:8000/api/v1/devices | python -m json.tool
-
-# Get latest readings
-curl http://localhost:8000/api/v1/readings/latest | python -m json.tool
-
-# Query with filters
-curl "http://localhost:8000/api/v1/readings?sensor=temperature&limit=5"
-
-# SSE live stream (press Ctrl+C to stop)
-curl -N http://localhost:8000/api/v1/stream
-```
-
-## Project Structure
-
-```
-month1-edge-sense/
-├── firmware/
-│   ├── esp32/                  # ESP32 MicroPython firmware
-│   │   ├── main.py             # Main event loop
-│   │   ├── mqtt_client.py      # MQTT client with TLS + backoff
-│   │   ├── local_buffer.py     # Offline data buffer (filesystem)
-│   │   ├── sensor_registry.py  # Dynamic driver loader
-│   │   ├── status_reporter.py  # Heartbeat publisher
-│   │   ├── drivers/            # Sensor drivers
-│   │   │   ├── dht22.py
-│   │   │   ├── mpu6050.py
-│   │   │   └── adc_generic.py
-│   │   └── config.json
-│   ├── simulator/              # Device simulator (Python)
-│   │   ├── simulator.py
-│   │   └── requirements.txt
-│   └── rpi_gateway/            # RPi MQTT gateway
-│       ├── gateway.py          # Full gateway implementation
-│       ├── gateway_config.yaml # Configuration file
-│       └── requirements.txt
-├── backend/                    # FastAPI backend
-│   ├── main.py                 # App entry point (lifespan, CORS, routers)
-│   ├── database.py             # Async SQLite (aiosqlite)
-│   ├── mqtt_subscriber.py      # Background MQTT listener
-│   ├── event_bus.py            # Thread-safe pub/sub for SSE
-│   ├── models.py               # Pydantic models
-│   ├── requirements.txt
-│   ├── Dockerfile
-│   └── routers/
-│       ├── __init__.py
-│       ├── devices.py          # GET /api/v1/devices
-│       ├── readings.py         # GET /api/v1/readings, /readings/latest
-│       └── stream.py           # GET /api/v1/stream (SSE)
-├── dashboard/                  # React dashboard
-│   ├── src/
-│   │   ├── components/
-│   │   │   ├── DeviceList.jsx
-│   │   │   ├── GaugeCard.jsx
-│   │   │   ├── SensorChart.jsx
-│   │   │   └── StatusBadge.jsx
-│   │   ├── hooks/
-│   │   │   └── useSensorStream.js
-│   │   ├── App.jsx
-│   │   ├── main.jsx
-│   │   └── index.css
-│   └── package.json
-├── crewai/                    # AI task planning
-├── tests/                     # Test suite
-│   ├── test_sensor_drivers.py # 4 tests (driver validation)
-│   ├── test_simulator.py      # 6 tests (model behavior)
-│   ├── test_api.py            # 5 tests (REST + SSE)
-│   ├── test_mqtt_schema.py    # 8 tests (topic/payload validation)
-│   ├── conftest.py
-│   └── pytest.ini
-├── docs/                      # Documentation
-│   ├── ARCHITECTURE.md
-│   ├── MQTT_SCHEMA.md
-│   └── DEMO_SCRIPT.md
-├── prometheus/                # Prometheus monitoring
-│   ├── prometheus.yml
-│   └── rules/
-│       └── iot_alerts.yml     # Alerting rules
-├── grafana/                   # Grafana dashboards
-│   ├── dashboards/
-│   │   └── iot-forge-dashboard.json
-│   └── provisioning/
-│       ├── datasources/
-│       │   └── datasources.yml
-│       └── dashboards/
-│           └── dashboards.yml
-├── docker-compose.yml
-├── mosquitto.conf
-├── Makefile
-└── pytest.ini
-```
-
-## Configuration
-
-### MQTT Broker
-
-Edit `mosquitto.conf` or use defaults (port 1883).
-
-### Backend Environment
-
-```bash
-# Optional: Override defaults
-export MQTT_HOST=localhost
-export MQTT_PORT=1883
-export DB_PATH=/data/iot_data.db
-```
-
-### RPi Gateway
-
-Edit `firmware/rpi_gateway/gateway_config.yaml`:
-
-```yaml
-gateway:
-  id: "rpi-gw-001"
-  org_id: "demo"
-  site_id: "blr-demo"
-
-local_broker:
-  host: "localhost"
-  port: 1883
-
-upstream_broker:
-  enabled: false   # set true + fill credentials to bridge to cloud
-  host: "YOUR_CLOUD_BROKER_HOST"
-  port: 8883
-  username: ""
-  password: ""
-
-buffer_size: 10000        # max in-memory buffered messages
-stats_interval_s: 30      # stats log interval
-api_port: 8080            # /health and /devices HTTP port
-```
-
-### ESP32 Configuration
-
-Edit `firmware/esp32/config.json`:
-
-```json
-{
-  "wifi": {
-    "ssid": "YOUR_WIFI_SSID",
-    "password": "YOUR_WIFI_PASSWORD"
-  },
-  "mqtt": {
-    "host": "mqtt-broker-host",
-    "port": 1883
-  },
-  "interval_ms": 5000,
-  "sensors": [...]
-}
-```
-
-## API Endpoints
-
-| Method | Path                    | Description                        |
-|--------|-------------------------|------------------------------------|
-| GET    | `/api/v1/health`        | Health check (status, ts, count)   |
-| GET    | `/api/v1/devices`       | List all known devices             |
-| GET    | `/api/v1/readings`      | Query readings (filters below)     |
-| GET    | `/api/v1/readings/latest` | Latest reading per device+sensor |
-| GET    | `/api/v1/stream`        | SSE live stream of sensor data     |
-
-### Query Parameters for `/api/v1/readings`
-
-| Param      | Type    | Description                        |
-|------------|---------|------------------------------------|
-| device_id  | string  | Filter by device ID                |
-| sensor     | string  | Filter by sensor type              |
-| limit      | integer | Max results (1-5000, default 200)  |
-| since_ts   | integer | Only readings >= this Unix ms ts   |
-
-## Monitoring (Prometheus + Grafana)
-
-The backend exposes Prometheus metrics at `GET /metrics` (port 8000).
-
-### Metrics Available
-
-| Metric                          | Type      | Labels                                      | Description                        |
-|---------------------------------|-----------|---------------------------------------------|------------------------------------|
-| `sensor_readings_total`         | Counter   | `device_id`, `org_id`, `site_id`, `sensor`  | Total sensor readings ingested     |
-| `sensor_reading_value`          | Gauge     | `device_id`, `sensor`, `unit`               | Latest sensor reading value        |
-| `iot_device_online`             | Gauge     | `device_id`                                 | Device online status (1/0)         |
-| `mqtt_messages_received_total`  | Counter   | `topic`                                     | MQTT messages by topic             |
-| `mqtt_messages_processed`       | Counter   | —                                           | Successfully processed messages    |
-| `database_readings_count`       | Gauge     | —                                           | Total readings in DB               |
-| `database_devices_count`        | Gauge     | —                                           | Total known devices                |
-| `http_request_duration_seconds` | Histogram | `method`, `path`, `status`                  | Request latency                    |
-| `http_requests_total`           | Counter   | `method`, `path`, `status`                  | Total HTTP requests                |
-
-### Access Monitoring Stack
-
-With `docker-compose up -d`:
-
-| Service    | URL                          | Credentials     |
-|------------|------------------------------|-----------------|
-| Prometheus | http://localhost:9090        | —               |
-| Grafana    | http://localhost:3030        | admin / admin   |
-| Backend    | http://localhost:8000/metrics | —               |
-
-### RPi Gateway Metrics
-
-If the RPi gateway is running (port 8080), it exposes its own `/metrics` endpoint:
-
-| Metric                             | Type    | Labels                                         | Description                        |
-|------------------------------------|---------|------------------------------------------------|------------------------------------|
-| `gateway_info`                     | Gauge   | `id`, `org_id`, `site_id`                      | Gateway metadata (always 1)        |
-| `gateway_up_connected`             | Gauge   | —                                              | Upstream connection status (1/0)   |
-| `gateway_known_devices`            | Gauge   | —                                              | Number of tracked edge devices     |
-| `gateway_buffer_size`              | Gauge   | —                                              | Current buffered message count     |
-| `gateway_messages_forwarded_total` | Counter | —                                              | Messages forwarded to upstream     |
-| `gateway_messages_buffered_total`  | Counter | —                                              | Messages buffered when offline     |
-| `gateway_buffer_dropped_total`     | Counter | —                                              | Messages dropped due to full buffer|
-| `gateway_uptime_seconds`           | Gauge   | —                                              | Process uptime                     |
-
-Add a scrape target in `prometheus/prometheus.yml` for the gateway:
-```yaml
-  - job_name: 'iot-forge-gateway'
-    static_configs:
-      - targets: ['<pi-ip>:8080']
-    metrics_path: /metrics
-```
-
-### Grafana Dashboard
-
-A pre-provisioned dashboard is available at `grafana/dashboards/iot-forge-dashboard.json` with sections for:
-
-**Backend Stats** (top row):
-- Readings/min, Active Devices, MQTT Msgs/min, Total DB Readings, API Req/s, API Latency p95
-
-**RPi Gateway** (second row):
-- Upstream Status (Connected/Disconnected), Buffer Size, Buffer Dropped, Known Devices, Forwarded/s, Buffered/s
-
-**Sensor Time-Series** (bottom):
-- Temperature, Humidity, Vibration RMS, Current — per-device line charts
-
-### Prometheus Alerting Rules
-
-Rules are defined in `prometheus/rules/iot_alerts.yml`:
-
-| Alert                | Condition                          | Severity |
-|----------------------|------------------------------------|----------|
-| BackendDown          | Backend unreachable > 1m           | critical |
-| NoReadingsReceived   | Zero readings in 5m                | warning  |
-| DeviceOffline        | Device offline > 5m                | warning  |
-| HighTemperature      | Temperature > 50°C                 | warning  |
-| HighVibration        | Vibration RMS > 0.3g               | warning  |
-
-### Grafana Dashboard
-
-A pre-provisioned dashboard is available at `grafana/dashboards/iot-forge-dashboard.json` with panels for:
-- Readings per minute
-- Active devices
-- MQTT message rate
-- Total DB readings
-- Temperature, humidity, vibration, current time-series
-
-## MQTT Topic Schema
-
-See [docs/MQTT_SCHEMA.md](docs/MQTT_SCHEMA.md) for complete topic and payload specifications.
-
-The RPi Gateway enriches every payload with:
-- `_gw_ts`  — gateway receive timestamp (Unix ms)
-- `_gw_id`  — gateway device ID (e.g. `rpi-gw-001`)
-- `_gw_site` — site ID from gateway config
-
-## Running Components Individually
-
-### Backend Only
-
-```bash
-pip install -r backend/requirements.txt
-uvicorn backend.main:app --reload --port 8000
-```
-
-### Dashboard Dev Mode
-
-```bash
-cd dashboard
-npm install
-npm run dev
-```
-
-### Simulator Only
-
-```bash
-pip install -r firmware/simulator/requirements.txt
-python firmware/simulator/simulator.py --devices 3 --interval 2 --anomaly
-```
-
-### Gateway Only
-
-```bash
-pip install -r firmware/rpi_gateway/requirements.txt
-python firmware/rpi_gateway/gateway.py
-```
-
-The gateway requires a running MQTT broker (Mosquitto) on `localhost:1883`.
-
-## Testing
-
-```bash
-# Run all tests (from month1-edge-sense/)
-pytest tests/ -v
-```
-
-Expected test suites:
-
-| Test file              | Tests | Description               |
-|------------------------|-------|---------------------------|
-| `test_sensor_drivers.py` | 4    | Sensor driver validation  |
-| `test_simulator.py`      | 6    | SensorModel behavior      |
-| `test_api.py`            | 5    | REST endpoints + SSE      |
-| `test_mqtt_schema.py`    | 8    | Topic/payload validation  |
-
-## Anomaly Detection
-
-The simulator can inject anomalies after 30 seconds:
-
-```bash
-python firmware/simulator/simulator.py --devices 2 --interval 2 --anomaly
-```
-
-After 30 seconds, vibration readings will exceed 0.30g, visible in the dashboard.
-
-## WSL (Windows Subsystem for Linux)
-
-When running Docker via WSL, the containers run inside WSL's VM, not on Windows directly.
-
-### Accessing services from Windows browser
-
-Use WSL's IP address instead of `localhost`:
-```powershell
-# From Windows PowerShell
-wsl -- ip addr show eth0 | grep -Po 'inet \K[\d.]+'
-```
-
-Or use port forwarding (already set up by Docker Desktop automatically in most cases).
-
-### NO DATA in Prometheus
-
-If Prometheus shows "NO DATA":
-
-1. **Check backend is running and healthy:**
-   ```bash
-   docker-compose ps
-   docker-compose logs backend
-   ```
-
-2. **Test the /metrics endpoint directly:**
-   ```bash
-   curl -s http://localhost:8000/metrics | head -20
-   ```
-
-3. **Verify Prometheus can reach the backend:**
-   ```bash
-   docker-compose exec prometheus wget -qO- http://iot-forge-backend:8000/metrics | head -10
-   ```
-   If this fails, check Prometheus target status at http://localhost:9090/targets
-
-4. **Check Prometheus target status in UI:**
-   Open http://localhost:9090/targets — look for `iot-forge-backend` job. If it shows `DOWN`, the endpoint is unreachable.
-
-5. **Restart cleanly:**
-   ```bash
-   docker-compose down -v
-   docker-compose up -d --build
-   ```
-
-### Service name resolution
-
-Docker Compose containers resolve each other by **service name** or **container_name**. In prometheus.yml the target `iot-forge-backend:8000` resolves to the backend container because its `container_name` is `iot-forge-backend`.
-
-### File permission issues
-
-If volume mounts cause permission errors:
-```bash
-# Fix grafana data permissions
-sudo chown -R 472:472 grafana/
-```
-
-## Troubleshooting
-
-### Services won't start
-
-```bash
-docker-compose logs
-```
-
-### No data in dashboard
-
-1. Check simulator is running
-2. Verify backend can connect to MQTT
-3. Check browser console for errors
-
-### Port conflicts
-
-Edit `docker-compose.yml` to change ports:
-- mosquitto: 1883
-- backend: 8000
-- dashboard: 3000
-- prometheus: 9090
-- grafana: 3030
-
-## Development
-
-### Adding New Sensor
-
-1. Create driver in `firmware/esp32/drivers/`
-2. Register in `config.json`
-3. No code changes to main.py needed
-
-### Adding API Endpoint
-
-1. Create router in `backend/routers/`
-2. Import and include in `backend/main.py`
-
-### Extending Dashboard
-
-- Add components in `dashboard/src/components/`
-- Use SSE hook in `dashboard/src/hooks/useSensorStream.js`
-
-## License
-
-MIT License - see LICENSE file.
-
-## Support
-
-- Documentation: [docs/](docs/)
-- MQTT Schema: [docs/MQTT_SCHEMA.md](docs/MQTT_SCHEMA.md)
-- Architecture: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
-- Demo Scripts: [docs/DEMO_SCRIPT.md](docs/DEMO_SCRIPT.md)
+OTA firmware updates, remote configuration push, device registry with health monitoring, firmware version tracking, and bulk command dispatch. Each device gets a maintenance history, and the dashboard gains a fleet overview with per-device controls.

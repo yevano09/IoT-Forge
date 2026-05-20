@@ -1,13 +1,13 @@
 gateway:
-  id: rpi-gw-001
+  id: docker-gw-001
   org_id: demo
   site_id: blr-demo
 local_broker:
-  host: localhost
+  host: mosquitto
   port: 1883
 upstream_broker:
   enabled: true
-  host: 192.168.0.165
+  host: mosquitto
   port: 1883
   username: ""
   password: ""
